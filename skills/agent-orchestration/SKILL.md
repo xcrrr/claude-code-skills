@@ -170,8 +170,28 @@ chasing all of them produces defensive over-engineering.
 - **Worktree isolation by default.** `isolation: "worktree"` costs setup time
   and disk. Use it only when parallel agents write to the same files.
 
+## Cheapest delegation is a named one
+
+Once you have spawned the same kind of worker twice, write it down as an agent
+in `.claude/agents/<name>.md`. Its system prompt then loads into the
+**subagent's** context, not yours: the output contract, tool limits, scope
+rules, model, and effort all move off your budget, and the delegation message
+drops from ~130 tokens to ~20.
+
+Two more levers worth knowing before you fan out:
+
+- **Route big output through disk.** If a return would exceed ~500 tokens, tell
+  the agent to write a file and return only the path plus a one-line verdict.
+  A 2,000-token report becomes ~40, and it survives `/clear`.
+- **Preload skills** with `skills: [name]` rather than restating standards in
+  every prompt — subagents inherit none of yours by default.
+
+Full ranking with measured numbers: `references/token-economics.md`.
+
 ## Reference material
 
+- `references/token-economics.md` — what delegation actually costs, and the six
+  levers that cut main-context spend, ranked.
 - `references/prompt-contract.md` — delegation prompt template, good and bad
   examples, output-format recipes.
 - `references/patterns.md` — the orchestration shapes: parallel scout, locate→
