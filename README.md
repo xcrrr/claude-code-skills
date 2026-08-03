@@ -30,13 +30,36 @@ skill gives it a decision procedure instead of an instinct.
 | `references/patterns.md` | on demand | 8 orchestration shapes: parallel scout, locate→act→verify, pipeline, adversarial verify, writer/reviewer, fan-out migration, loop-until-dry, completeness critic |
 | `references/mechanics.md` | on demand | Hard limits, tool filters, what actually loads into a subagent, resuming, custom agent frontmatter |
 
+### `anti-ai-slop`
+
+Stops Claude from producing the aesthetic everyone now recognizes on sight:
+purple-to-blue gradients, neon on near-black, glassmorphic cards, glow shadows,
+emoji as icons, and 800-weight sans headings over "Supercharge your workflow".
+
+It replaces that default with an editorial one — warm paper-toned grounds,
+**serif display type**, a single muted earthy accent, modest radii, and an
+effects budget close to zero. Quality carried by type, spacing, and restraint
+instead of decoration.
+
+The rules aren't taste assertions. They were derived by reading the actual
+stylesheets of design systems that get this right: in ~280 KB of one such brand
+CSS there are **5 linear-gradients, 1 radial, and 0 backdrop-filters**, with
+font weights living at 300–400 and border radii between 4 and 16px. That ratio
+is the target, and it should feel restrictive.
+
+| File | Loads | Purpose |
+|---|---|---|
+| `SKILL.md` | before any UI/CSS/markup work | Six rules, the pre-flight questions, the tells, content-over-decoration |
+| `references/tokens.md` | on demand | Palettes, type scale, spacing, radius/shadow systems, starter CSS and Tailwind config |
+| `references/slop-catalog.md` | on demand | Every tell, why it reads as cheap, and the specific replacement |
+
 ---
 
 ## Install
 
 ```bash
 git clone https://github.com/xcrrr/claude-code-skills.git
-cp -r claude-code-skills/skills/agent-orchestration ~/.claude/skills/
+cp -r claude-code-skills/skills/* ~/.claude/skills/
 ```
 
 Restart Claude Code once if `~/.claude/skills/` didn't exist before. That's it —
@@ -101,6 +124,15 @@ What the skill demonstrably does is make the technique *reachable*: the routing
 rules, the fleet-sizing table, and the prompt contract are exactly the practices
 those results came from, written where the model will actually read them.
 
+### And for `anti-ai-slop`: no metric, by nature
+
+Design quality isn't measurable the way context consumption is, and no number
+here would be honest. What the skill *does* have is derivation: its rules come
+from reading the real stylesheets of design systems that are widely agreed to
+be good, and the counts are stated so you can check them yourself — 5
+gradients in 280 KB, weights at 300–400, radii 4–16px. The taste claim is that
+those systems are worth imitating. Judge that one by eye.
+
 ### The honest limits
 
 The same Anthropic post is blunt about where this fails, and the skill repeats it
@@ -129,6 +161,46 @@ Progressive disclosure means the skill is nearly free until it's used:
 
 One avoided inline file-read pays for it many times over. The whole repo is 29 KB
 and never loads at once.
+
+---
+
+## How the skills work together
+
+They're designed to compose rather than collide:
+
+- `agent-orchestration` decides **whether and how** work gets delegated.
+  `anti-ai-slop` decides **what the output looks like**. Different axes.
+- A subagent inherits **no** skills by default. So `anti-ai-slop` explicitly
+  tells you to preload it into any design-related subagent
+  (`skills: [anti-ai-slop]` in the agent frontmatter, or restate the ground,
+  accent, and typeface decisions in the delegation prompt). An un-briefed
+  design agent produces exactly the slop the skill exists to prevent — this is
+  the most common way a good design decision gets lost across a delegation.
+- Terse-output modes (see companion stacks below) compress **chat prose only**.
+  Both skills state that code, CSS, and accessibility attributes are always
+  written in full.
+
+---
+
+## Companion stacks
+
+Two other MIT-licensed projects pair well with these, and are recommended
+rather than absorbed — install them from source so you get their maintenance
+instead of a stale copy. Full attribution and the reasoning in
+[CREDITS.md](CREDITS.md).
+
+- **[caveman](https://github.com/JuliusBrussee/caveman)** (Julius Brussee, MIT)
+  — compresses conversational output to cut tokens, and ships `cavecrew`
+  subagents whose compressed reports make delegation returns cheaper. Its
+  compression deliberately excludes code and security warnings, which is what
+  makes it safe next to `anti-ai-slop`.
+- **[gstack](https://github.com/garrytan/gstack)** (Garry Tan, MIT) — a large
+  opinionated setup covering planning, review, QA, and release. Nothing was
+  copied from it here: an inventory of its 62 skills found most are coupled to
+  its own `bin/` toolchain, Supabase-backed memory, telemetry, or Codex, and
+  the self-contained ones run 37–127 KB each — the spec skill alone is roughly
+  32,000 tokens, which is the opposite of this repo's cheap-loading premise.
+  Run the two side by side instead. CREDITS.md explains the call in full.
 
 ---
 
