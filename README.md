@@ -28,7 +28,46 @@ skill gives it a decision procedure instead of an instinct.
 | `SKILL.md` | when the task is non-trivial | 4-gate delegation decision, fleet-sizing table, model/effort routing, prompt contract, anti-patterns |
 | `references/prompt-contract.md` | on demand | Delegation prompt template, before/after examples, output-format recipes |
 | `references/patterns.md` | on demand | 8 orchestration shapes: parallel scout, locate→act→verify, pipeline, adversarial verify, writer/reviewer, fan-out migration, loop-until-dry, completeness critic |
+| `references/token-economics.md` | on demand | What delegation costs and the six levers that cut main-context spend, ranked |
 | `references/mechanics.md` | on demand | Hard limits, tool filters, what actually loads into a subagent, resuming, custom agent frontmatter |
+| `scripts/delegation-audit.py` | on request | Measures the real leverage of every delegation you have run |
+
+#### It measures itself
+
+Most advice about token economy is unfalsifiable. This skill ships a script that
+checks whether the advice worked, using Claude Code's own subagent transcripts —
+which record per-message token usage on disk.
+
+```
+leverage = tokens the agent processed / tokens it returned to you
+```
+
+Run `python3 scripts/delegation-audit.py`. Real output from the session that
+built this repository:
+
+```
+  agent           model        tools    absorbed  returned  leverage
+  a5d36db1e601a1  sonnet-5         5     105,191       996      106x
+  aa37d70412f433  sonnet-5        12     269,572     2,158      125x
+  a746bb6bd995e2  sonnet-5        32     222,308     1,144      194x
+  abc92aa8581bc0  haiku-4-5        17     318,210        29    10973x
+
+  TOTAL                                  915,281     4,327      212x
+
+  Worth changing:
+    a5d36db1e601a1  unbounded return (996 tok): cap the output format
+    aa37d70412f433  unbounded return (2158 tok): cap the output format
+    a746bb6bd995e2  unbounded return (1144 tok): cap the output format
+```
+
+Four delegations absorbed **915,281 tokens** of material and charged the main
+conversation **4,327** — a 212× ratio. And the tool immediately flagged three of
+those four as having returns that were never capped, which is exactly the
+mistake this repo's own skill warns about. It criticizes its author with real
+data; that is the point of shipping it.
+
+Leverage below 10× means the work belonged inline. Above 100× means the
+delegation earned its cold start.
 
 ### `anti-ai-slop`
 

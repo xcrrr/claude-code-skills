@@ -7,7 +7,8 @@ description: >
   investigation, multi-file work, migrations, reviews, or anything that will
   read a lot of files. Also load when the user says "use agents", "delegate",
   "spawn subagents", "in parallel", "orchestrate", or asks why a delegation
-  went badly.
+  went badly, cost too much, or should be audited.
+allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/delegation-audit.py*)
 when_to_use: >
   Any task with more than one independent piece of work, any task that will
   read many files, any request to parallelize, and any time you are about to
@@ -169,6 +170,38 @@ chasing all of them produces defensive over-engineering.
   prompt, especially for `Explore`/`Plan`, which never see `CLAUDE.md`.
 - **Worktree isolation by default.** `isolation: "worktree"` costs setup time
   and disk. Use it only when parallel agents write to the same files.
+
+## Measure it instead of guessing
+
+Every subagent's transcript, with per-message token usage, is on disk at
+`~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl`. That makes
+the only question worth asking about a delegation answerable exactly:
+
+**leverage = tokens the agent processed / tokens it returned to you**
+
+Run the audit — it needs no arguments, no network, and reads only local files:
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/scripts/delegation-audit.py          # latest session
+python3 ${CLAUDE_SKILL_DIR}/scripts/delegation-audit.py --all    # whole project
+```
+
+Read the result this way:
+
+| Leverage | Meaning |
+|---|---|
+| **> 100x** | The delegation did its job — heavy reading, small report |
+| **10–100x** | Fine, but the return could usually be tightened |
+| **< 10x** | You paid cold-start cost to learn almost nothing — inline it next time |
+
+The audit also flags any agent that returned more than ~800 tokens, because an
+unbounded return is the one mistake that makes delegation worse than doing the
+work yourself.
+
+Use it when a session felt expensive, before adding another agent to a fleet,
+and after changing a delegation prompt — the ratio tells you whether the change
+helped. Advice about token economy is worth what you can verify; this is the
+verification.
 
 ## Cheapest delegation is a named one
 
