@@ -2,48 +2,74 @@
 
 Skills that change how Claude Code *works*, not what it knows.
 
-Each skill here encodes a working practice — distilled from Anthropic's own
-published research and docs — into a form Claude loads automatically when it's
-relevant. No configuration, no wrappers, no MCP server. Drop a folder in
-`~/.claude/skills/` and Claude picks it up.
+Three skills, three subagents, a guard hook, and three scripts that measure and
+remove real token costs. No configuration, no wrappers, no MCP server, no
+service. Drop the folders in `~/.claude/` and Claude picks them up.
+
+Everything here is either traceable to published Anthropic material or measured
+on this machine, with the numbers printed so you can check them.
 
 ---
 
-## Skills
+## What's in it
+
+| | Name | Does |
+|---|---|---|
+| **skill** | `agent-orchestration` | When to delegate to subagents, how many, which model and effort — and when not to |
+| **skill** | `anti-ai-slop` | Stops the purple-gradient-neon-glass default; produces editorial design instead |
+| **skill** | `preflight` | The verification gate before calling work done or deploying |
+| **agent** | `scout` | Read-only code locator, compressed `file:line` output |
+| **agent** | `gate` | Runs typecheck/build/lint, returns the verdict and failing lines only |
+| **agent** | `design-critic` | Audits UI against the anti-slop rules |
+| **hook** | `guard-scope` | Locks edits to one directory when you want it |
+| **script** | `delegation-audit.py` | Measures the real leverage of every delegation you have run |
+| **script** | `warm-start.py` | Removes a subagent's orientation cost with a computed repo map |
+| **script** | `install-briefings.sh` | Rolls that out across every repo, refreshed on commit |
+
+## Install
+
+```bash
+git clone https://github.com/xcrrr/claude-code-skills.git
+cd claude-code-skills
+cp -r skills/* ~/.claude/skills/
+cp -r agents/*.md ~/.claude/agents/
+```
+
+Restart once if `~/.claude/skills/` or `~/.claude/agents/` did not exist before.
+For a single project, copy into `.claude/` in the repo instead.
+
+Optional, and recommended if you delegate a lot:
+
+```bash
+bash skills/agent-orchestration/scripts/install-briefings.sh ~/repos
+```
+
+---
+
+## The skills
 
 ### `agent-orchestration`
 
-Teaches Claude Code to delegate to subagents deliberately: **when** to spawn one,
-**how many**, **which model and effort level**, **how to write the delegation
-prompt** — and, just as importantly, **when not to delegate at all**.
+Out of the box Claude delegates inconsistently — forty files read inline
+burning your context, then five agents spawned for a job that needed one. This
+gives it a decision procedure: four gates before spawning, a fleet-sizing
+table, model-versus-effort routing, a four-part prompt contract, and an
+anti-pattern list.
 
-Out of the box, Claude delegates inconsistently. It will read forty files inline
-and burn your context, then spawn five agents for a task that needed one. This
-skill gives it a decision procedure instead of an instinct.
-
-**What it contains**
-
-| File | Loads | Purpose |
-|---|---|---|
-| `SKILL.md` | when the task is non-trivial | 4-gate delegation decision, fleet-sizing table, model/effort routing, prompt contract, anti-patterns |
-| `references/prompt-contract.md` | on demand | Delegation prompt template, before/after examples, output-format recipes |
-| `references/patterns.md` | on demand | 8 orchestration shapes: parallel scout, locate→act→verify, pipeline, adversarial verify, writer/reviewer, fan-out migration, loop-until-dry, completeness critic |
-| `references/token-economics.md` | on demand | What delegation costs and the six levers that cut main-context spend, ranked |
-| `references/mechanics.md` | on demand | Hard limits, tool filters, what actually loads into a subagent, resuming, custom agent frontmatter |
-| `scripts/delegation-audit.py` | on request | Measures the real leverage of every delegation you have run |
+It also ships the two tools below, because advice about token economy is
+unfalsifiable unless you can check it.
 
 #### It measures itself
 
-Most advice about token economy is unfalsifiable. This skill ships a script that
-checks whether the advice worked, using Claude Code's own subagent transcripts —
-which record per-message token usage on disk.
+Claude Code writes every subagent transcript to disk with per-message token
+usage. That is enough to compute the only ratio that matters:
 
 ```
 leverage = tokens the agent processed / tokens it returned to you
 ```
 
-Run `python3 scripts/delegation-audit.py`. Real output from the session that
-built this repository:
+`python3 scripts/delegation-audit.py` — real output from the session that built
+this repository:
 
 ```
   agent           model        tools    absorbed  returned  leverage
@@ -60,228 +86,219 @@ built this repository:
     a746bb6bd995e2  unbounded return (1144 tok): cap the output format
 ```
 
-Four delegations absorbed **915,281 tokens** of material and charged the main
-conversation **4,327** — a 212× ratio. And the tool immediately flagged three of
-those four as having returns that were never capped, which is exactly the
-mistake this repo's own skill warns about. It criticizes its author with real
-data; that is the point of shipping it.
+Four delegations absorbed **915,281 tokens** and charged the main conversation
+**4,327**. The tool then flagged three of those four for uncapped returns —
+exactly the mistake this repo's own skill warns about. It criticizes its author
+with real data; that is the reason to ship it instead of another table of
+estimates.
 
-Leverage below 10× means the work belonged inline. Above 100× means the
-delegation earned its cold start.
+Below 10× the work belonged inline. Above 100× the delegation earned its cold
+start.
+
+#### It deletes the cold start
+
+A subagent's first ten to thirty tool calls are usually not the work. They are
+orientation: what stack is this, where does the source live, how do I build it.
+Every agent in a fleet re-derives that same map separately — and **none of it
+needs a model.** Where files live is a fact you can compute.
+
+```bash
+python3 scripts/warm-start.py     # writes .claude/briefing.md
+```
+
+Measured on a real 97-file TanStack/Vite repo:
+
+| | Cost | Answers |
+|---|---|---|
+| Bare `find` of source files | ~745 tok | paths only |
+| `.claude/briefing.md` | **~315 tok** | stack, package manager, build/test/lint commands, layout, entry points, traps |
+
+Less than half the tokens of the crudest possible orientation call, and unlike
+that call it answers the questions the agent was about to ask.
+
+Two properties stop it from merely relocating the cost. It is **deterministic**
+— a briefing that costs an LLM call has just moved the cold start elsewhere.
+And it is **byte-stable**: everything is sorted, so an unchanged repo
+regenerates identically and stays prompt-cache friendly rather than
+invalidating on every run. Verify by hashing two consecutive runs.
+
+`install-briefings.sh` rolls it across every repo in a directory and adds a
+post-commit hook to keep it current. The ignore goes in `.git/info/exclude`,
+which is local and untracked — so ten repositories gain a generated file with
+**no tracked file modified**, no diff noise, and nothing for a collaborator to
+see. `--uninstall` reverses all of it.
 
 ### `anti-ai-slop`
 
-Stops Claude from producing the aesthetic everyone now recognizes on sight:
-purple-to-blue gradients, neon on near-black, glassmorphic cards, glow shadows,
-emoji as icons, and 800-weight sans headings over "Supercharge your workflow".
+Stops the aesthetic everyone now recognizes on sight: purple-to-blue gradients,
+neon on near-black, glassmorphic cards, glow shadows, emoji as icons,
+800-weight sans headings over "Supercharge your workflow".
 
-It replaces that default with an editorial one — warm paper-toned grounds,
-**serif display type**, a single muted earthy accent, modest radii, and an
-effects budget close to zero. Quality carried by type, spacing, and restraint
-instead of decoration.
+Replaces it with an editorial one — warm paper grounds, **serif display type**,
+a single muted earthy accent, modest radii, and an effects budget near zero.
 
-The rules aren't taste assertions. They were derived by reading the actual
-stylesheets of design systems that get this right: in ~280 KB of one such brand
+The rules are derived, not asserted. Reading the real stylesheets of design
+systems that get this right gives hard numbers: in ~280 KB of one such brand
 CSS there are **5 linear-gradients, 1 radial, and 0 backdrop-filters**, with
-font weights living at 300–400 and border radii between 4 and 16px. That ratio
-is the target, and it should feel restrictive.
+font weights living at 300–400 and radii between 4 and 16px. That ratio is the
+target, and it should feel restrictive.
 
-| File | Loads | Purpose |
+`references/tokens.md` has copy-paste palettes, type scales and starter CSS;
+`references/slop-catalog.md` lists every tell with its replacement.
+
+### `preflight`
+
+The gate before "done": typecheck → build → lint → tests, stop at the first
+failure, plus the traps that hide in scaffolded projects — the missing build-output
+entry in `eslint.config.js` ignores that turns an 8-second lint into a
+multi-minute hang, two lockfiles, undeclared transitive dependencies. And four
+checks before any deploy, including that nothing fabricated ships.
+
+---
+
+## The agents
+
+Naming an agent is a token optimization as much as an organizational one. Its
+system prompt loads into the **subagent's** context, so your main conversation
+pays only the one-line description, and the delegation message shrinks from a
+written contract to a sentence.
+
+| | Main context | Subagent context |
 |---|---|---|
-| `SKILL.md` | before any UI/CSS/markup work | Six rules, the pre-flight questions, the tells, content-over-decoration |
-| `references/tokens.md` | on demand | Palettes, type scale, spacing, radius/shadow systems, starter CSS and Tailwind config |
-| `references/slop-catalog.md` | on demand | Every tell, why it reads as cheap, and the specific replacement |
+| Listing entry, per agent | 90–108 tok | — |
+| System prompt | **0** | 551–624 tok |
+| Delegation message, inline contract | ~131 tok | — |
+| Delegation message, named agent | **~19 tok** | — |
+
+### Their returns are compressed on purpose
+
+Nobody reads an agent's return as prose — it goes machine-to-machine. So the
+output formats strip articles, bullets, backticks, em-dashes and sentences.
+Measured on a realistic 12-row locator result:
+
+| Format | Cost | vs baseline |
+|---|---|---|
+| Prose rows with backticks and dashes | 103 tok | — |
+| Space-separated tagged rows | 64 tok | **−38%** |
+| Bare `path:line` lines | 21 tok | **−80%** |
+
+`scout` takes a *paths only* request and drops to the third row. Combined
+return budgets across the three agents fell from 1,000 to 750 tokens.
+
+**Two things are never compressed:** identifiers and evidence. File paths, line
+numbers, symbol names, quoted compiler errors and exit codes stay verbatim —
+a shortened path is a wrong answer and a paraphrased error is unusable. The
+agents say so explicitly, because a model told to "be terse" will otherwise
+tidy an error message.
+
+All three are read-or-report only. None edits, deploys, or pushes.
 
 ---
 
-## Install
+## Honest accounting
 
-```bash
-git clone https://github.com/xcrrr/claude-code-skills.git
-cp -r claude-code-skills/skills/* ~/.claude/skills/
-```
+### It does not save tokens. It saves your context window.
 
-Restart Claude Code once if `~/.claude/skills/` didn't exist before. That's it —
-Claude loads the skill on its own when a task calls for it, or you can invoke it
-directly with `/agent-orchestration`.
+Delegating **increases** total spend — Anthropic measured multi-agent systems at
+roughly **15× the tokens of a chat interaction**; single agents about **4×**.
+The subagent still reads everything, and you pay for a cold start on top.
 
-For a single project instead of globally, copy into `.claude/skills/` in the
-repo.
+What you buy is the scarce resource. Claude Code's own docs put it flatly:
+"Claude's context window fills up fast, and performance degrades as it fills."
+The audit above is what that purchase looks like measured: 915,281 tokens of
+material for 4,327 tokens of context.
 
----
+**Delegate to protect context, not to save money.** If your goal is a lower
+bill, delegate less and prompt better — and check your session's model and
+effort defaults before blaming anything here.
 
-## Does it actually help? An honest accounting
+### Quality: strong evidence for the technique, none for these skills
 
-Three separate questions get conflated in every "AI agents" pitch. Here they are
-separated, with the evidence labelled by how strong it is.
+Anthropic's published result: an **Opus lead with Sonnet subagents outperformed
+single-agent Opus by 90.2%** on their internal research eval; token usage alone
+explained **80% of performance variance** on BrowseComp. Those measure
+orchestration done well, in their harness. **They are not a measurement of this
+repository.** No controlled A/B has been run here, and saying so beats implying
+a number nobody produced.
 
-### It does **not** save tokens. It saves your context window.
+For `anti-ai-slop` there is no metric at all and no honest way to invent one —
+only the derivation, with counts stated so you can check them.
 
-This is the part most agent tooling gets wrong or hides.
+### The limits, stated
 
-Delegating work to subagents **increases total token spend.** Anthropic measured
-their multi-agent research system at roughly **15× the tokens of a chat
-interaction**; single agents run about **4×**. The subagent still reads every
-file — you're paying for that reading, plus the cold-start cost of an agent that
-begins with none of your context.
-
-What you buy for that is the scarce resource: **the main conversation's context
-window.** Claude Code's own best-practices doc puts it flatly — "Claude's context
-window fills up fast, and performance degrades as it fills." A subagent reads in
-its own window and hands back a summary. The files never touch yours.
-
-**Measured on a mid-size Python codebase** (~9 relevant files, private repo,
-paths withheld):
-
-| Approach | Main-context cost |
-|---|---|
-| Answer one architecture question by reading the relevant files inline | **~43,000 tokens** |
-| Same question, delegated with this skill's bounded output contract | **~400 tokens** |
-
-That's roughly **100× less main-context consumption for that question** — and it
-is a measurement of *input volume*, not of answer quality. The reading still
-happened; it just happened somewhere that doesn't cost you the rest of your
-session.
-
-If you take one thing from this repo: **delegate to protect context, not to save
-money.** If your goal is a lower bill, delegate less and prompt better.
-
-### Quality: strong evidence for the technique, none yet for this skill
-
-Anthropic's published result, on their internal research eval: a multi-agent
-system with an **Opus lead and Sonnet subagents outperformed single-agent Opus by
-90.2%**. They also found **token usage alone explains 80% of performance
-variance** on BrowseComp, and that parallel tool calling cut research time by
-**up to 90%**.
-
-Those numbers measure *orchestration done well*, in Anthropic's harness, on
-research tasks. They are the reason this skill exists. **They are not a
-measurement of this skill.** No controlled A/B of Claude Code with and without it
-has been run here, and saying so beats implying a number nobody produced.
-
-What the skill demonstrably does is make the technique *reachable*: the routing
-rules, the fleet-sizing table, and the prompt contract are exactly the practices
-those results came from, written where the model will actually read them.
-
-### And for `anti-ai-slop`: no metric, by nature
-
-Design quality isn't measurable the way context consumption is, and no number
-here would be honest. What the skill *does* have is derivation: its rules come
-from reading the real stylesheets of design systems that are widely agreed to
-be good, and the counts are stated so you can check them yourself — 5
-gradients in 280 KB, weights at 300–400, radii 4–16px. The taste claim is that
-those systems are worth imitating. Judge that one by eye.
-
-### The honest limits
-
-The same Anthropic post is blunt about where this fails, and the skill repeats it
-rather than burying it:
+Anthropic is blunt about where this fails, and the skill repeats it rather than
+burying it:
 
 > Multi-agent systems are ineffective for domains requiring all agents to share
 > the same context or involving many dependencies between agents. **Most coding
 > tasks lack sufficient parallelizable work.**
 
-So a skill whose whole job is delegation spends a third of its length telling
-Claude *not* to delegate. Four gates have to pass first. Tightly-coupled
-implementation work stays inline, and the skill says so plainly.
+So a skill about delegation spends a third of its length saying *don't*. Four
+gates must pass. Tightly-coupled implementation stays inline.
 
-If you were hoping for "spawn 10 agents, go 10× faster" — that isn't the finding,
-and this isn't that repo.
+The cold-start measurement compares the briefing against the cheapest
+alternative; it is not a controlled before/after on tool-call counts. And the
+briefing cannot supply task context — what you learned three turns ago still
+has to go in the prompt.
 
-### What it costs you to install
-
-Progressive disclosure means the skill is nearly free until it's used:
+### What it costs to install
 
 | State | Context cost |
 |---|---|
-| Installed, idle (description in the skill listing) | **~180 tokens** |
-| Loaded for a task | **~2,100 tokens** (`SKILL.md`) |
-| Plus a reference file, when a detail is needed | +1,300–2,600 tokens |
+| A skill installed and idle | ~180 tok |
+| Loaded for a task | ~2,100 tok |
+| Plus a reference file when needed | +1,300–2,600 tok |
+| An agent, idle | 90–108 tok |
 
-One avoided inline file-read pays for it many times over. The whole repo is 29 KB
-and never loads at once.
+One avoided inline file-read pays for all of it.
 
 ---
 
-## How the skills work together
+## How they compose
 
-They're designed to compose rather than collide:
-
-- `agent-orchestration` decides **whether and how** work gets delegated.
-  `anti-ai-slop` decides **what the output looks like**. Different axes.
-- A subagent inherits **no** skills by default. So `anti-ai-slop` explicitly
-  tells you to preload it into any design-related subagent
-  (`skills: [anti-ai-slop]` in the agent frontmatter, or restate the ground,
-  accent, and typeface decisions in the delegation prompt). An un-briefed
-  design agent produces exactly the slop the skill exists to prevent — this is
-  the most common way a good design decision gets lost across a delegation.
-- Terse-output modes (see companion stacks below) compress **chat prose only**.
-  Both skills state that code, CSS, and accessibility attributes are always
+- `agent-orchestration` decides **whether** work is delegated; `anti-ai-slop`
+  decides **what the output looks like**; `preflight` decides **whether it is
+  done**. Different axes.
+- A subagent inherits **no** skills by default. `gate` and `design-critic`
+  therefore preload theirs with the `skills:` field. Without it an un-briefed
+  agent silently drops the standard you assumed was enforced — the most common
+  way a good decision is lost across a delegation.
+- Terse-output modes elsewhere in your setup compress **chat prose only**. Every
+  skill here states that code, CSS, accessibility attributes and error text are
   written in full.
-
----
 
 ## Companion stacks
 
-Two other MIT-licensed projects pair well with these, and are recommended
-rather than absorbed — install them from source so you get their maintenance
-instead of a stale copy. Full attribution and the reasoning in
-[CREDITS.md](CREDITS.md).
+Two MIT-licensed projects pair well and are recommended rather than absorbed —
+install from source so you get their maintenance, not a stale copy. Attribution
+and reasoning in [CREDITS.md](CREDITS.md).
 
-- **[caveman](https://github.com/JuliusBrussee/caveman)** (Julius Brussee, MIT)
-  — compresses conversational output to cut tokens, and ships `cavecrew`
-  subagents whose compressed reports make delegation returns cheaper. Its
-  compression deliberately excludes code and security warnings, which is what
-  makes it safe next to `anti-ai-slop`.
-- **[gstack](https://github.com/garrytan/gstack)** (Garry Tan, MIT) — a large
-  opinionated setup covering planning, review, QA, and release. Nothing was
-  copied from it here: an inventory of its 62 skills found most are coupled to
-  its own `bin/` toolchain, Supabase-backed memory, telemetry, or Codex, and
-  the self-contained ones run 37–127 KB each — the spec skill alone is roughly
-  32,000 tokens, which is the opposite of this repo's cheap-loading premise.
-  Run the two side by side instead. CREDITS.md explains the call in full.
-
----
-
-## Why a skill and not a CLAUDE.md rule
-
-`CLAUDE.md` loads on **every** conversation, so everything in it competes for
-attention with everything else — and Claude Code's docs warn that a bloated
-`CLAUDE.md` causes Claude to ignore the rules inside it. A skill loads only when
-the work calls for it. Orchestration guidance is exactly the kind of content that
-matters intensely for some tasks and is noise for the rest.
-
-If you want it applied unconditionally, add one line to `~/.claude/CLAUDE.md`:
-
-```markdown
-Before any task with more than one independent piece of work, load the
-`agent-orchestration` skill and follow its delegation gates.
-```
-
----
+- **[caveman](https://github.com/JuliusBrussee/caveman)** (Julius Brussee) —
+  compresses conversational output. Its exclusion of code and security warnings
+  is what makes it safe alongside `anti-ai-slop`.
+- **[gstack](https://github.com/garrytan/gstack)** (Garry Tan) — a large
+  opinionated setup. Nothing was copied: an inventory of its 62 skills found
+  most coupled to its own toolchain, Supabase-backed memory, telemetry or
+  Codex, and the self-contained ones run 37–127 KB each. The `guard-scope` hook
+  here is a clean reimplementation of its `freeze` pattern, credited.
 
 ## Sources
 
-Everything in these skills traces to published Anthropic material. No invented
-numbers, no folklore.
-
-- [How we built our multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system) — orchestrator-worker pattern, the 15× and 90.2% figures, fleet-sizing rules, failure modes
-- [Claude Code best practices](https://code.claude.com/docs/en/best-practices) — context as the binding constraint, verification loops, adversarial review
-- [Subagents](https://code.claude.com/docs/en/sub-agents) — frontmatter spec, limits, tool filters, context isolation
-- [Model configuration](https://code.claude.com/docs/en/model-config) — effort levels and their semantics
-- [Choosing a Claude model and effort level](https://claude.com/blog/claude-model-and-effort-level-in-claude-code) — model vs effort as separate dials
-- [Skills](https://code.claude.com/docs/en/skills) — the SKILL.md format itself
-
----
+- [How we built our multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system) — orchestrator-worker pattern, the 15× and 90.2% figures, fleet sizing, failure modes
+- [Claude Code best practices](https://code.claude.com/docs/en/best-practices) — context as the binding constraint, verification, adversarial review
+- [Subagents](https://code.claude.com/docs/en/sub-agents) — frontmatter, limits, tool filters, context isolation, transcript paths
+- [Model configuration](https://code.claude.com/docs/en/model-config) — effort levels
+- [Choosing a model and effort level](https://claude.com/blog/claude-model-and-effort-level-in-claude-code) — model vs effort as separate dials
+- [Skills](https://code.claude.com/docs/en/skills) — the SKILL.md format
 
 ## Contributing
 
-Corrections welcome, especially where Claude Code's behavior has moved on — the
-mechanics reference is version-sensitive and pinned to v2.1.219. If a limit,
-default, or tool filter has changed, open an issue with the version you're on.
+Corrections welcome, especially where Claude Code has moved on — the mechanics
+reference is version-sensitive and pinned to v2.1.219. If a limit, default or
+tool filter has changed, open an issue with the version you are on.
 
-More skills are planned. Each one has to clear the same bar: a real practice,
-traceable to evidence, with the costs stated as plainly as the benefits.
+Each addition has to clear the same bar: a real practice, traceable to evidence
+or measured on a real repo, with the costs stated as plainly as the benefits.
 
 ## License
 

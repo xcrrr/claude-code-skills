@@ -27,6 +27,32 @@ agents will exhaust the context you delegated to protect.
 
 ---
 
+### Compress the return itself
+
+Nobody reads an agent's return as prose. It goes machine-to-machine: the
+orchestrator parses it and acts. So grammar in a return is pure waste.
+
+Strip articles, bullets, backticks, em-dashes and full sentences from the
+format you ask for. Measured on a realistic 12-row locator result:
+
+| Format | Cost | vs baseline |
+|---|---|---|
+| Prose rows with backticks and em-dashes | 103 tok | — |
+| Space-separated tagged rows | 64 tok | **−38%** |
+| Bare `path:line` lines | 21 tok | **−80%** |
+
+Across thirty locator delegations that is roughly 1,200 tokens saved by format
+alone, before touching what the agent actually did.
+
+**Two hard exceptions.** Never compress identifiers or evidence: file paths,
+line numbers, symbol names, quoted error text, exit codes. A shortened path is
+a wrong answer, and a paraphrased compiler error is unusable to whoever greps
+for it. Compress the agent's own words; never its payload.
+
+Offer a second, cheaper tier for when coordinates are all you need — "paths
+only" is the single largest format saving available and covers most locator
+calls.
+
 ## 2. Hand off through disk, not through context.
 
 For anything whose output is larger than a screen, have the agent **write a
