@@ -8,7 +8,7 @@ description: >
   read a lot of files. Also load when the user says "use agents", "delegate",
   "spawn subagents", "in parallel", "orchestrate", or asks why a delegation
   went badly, cost too much, or should be audited.
-allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/delegation-audit.py*)
+allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/delegation-audit.py*), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/warm-start.py*)
 when_to_use: >
   Any task with more than one independent piece of work, any task that will
   read many files, any request to parallelize, and any time you are about to
@@ -170,6 +170,34 @@ chasing all of them produces defensive over-engineering.
   prompt, especially for `Explore`/`Plan`, which never see `CLAUDE.md`.
 - **Worktree isolation by default.** `isolation: "worktree"` costs setup time
   and disk. Use it only when parallel agents write to the same files.
+
+## Delete the cold start before you fan out
+
+A subagent's first ten to thirty tool calls are usually not the work — they are
+orientation. What stack is this, where does the source live, how do I build it.
+Every agent in a fleet re-derives that same map separately, and **none of it
+needs a model**: where files live is a fact you can compute.
+
+So compute it once:
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/scripts/warm-start.py     # writes .claude/briefing.md
+```
+
+Then one line in every agent's system prompt:
+
+> First action: if `.claude/briefing.md` exists, read it. Never `find` or
+> `ls -R` to orient yourself.
+
+Orientation collapses to a single Read. Measured on a real 97-file repo: a bare
+`find` of source files costs ~745 tokens and returns only paths; the briefing
+costs **~315 tokens** and gives stack, package manager, build/test/lint
+commands, layout, entry points, and known traps.
+
+The output is deterministic and sorted, so an unchanged repo regenerates
+byte-identically and stays prompt-cache friendly. Regenerate when the structure
+moves. Full method, the cache-preload variant for large fleets, and what it
+does *not* fix: `references/cold-start.md`.
 
 ## Measure it instead of guessing
 

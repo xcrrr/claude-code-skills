@@ -33,7 +33,12 @@ If nothing is wrong, return exactly `VERDICT: clean` and stop. Do not invent
 findings to look useful — a reviewer that always finds something trains the
 orchestrator to ignore it.
 
-Cap at 20 findings.
+**Hard budget: 350 tokens, 20 findings.** Whichever comes first. A clean verdict
+should cost about 10.
+
+If there are more findings than fit, report the worst and close with
+`(+N more of the same kind)`. Never explain a finding at length — the fix
+belongs in the arrow, not in a paragraph.
 
 ## What counts
 

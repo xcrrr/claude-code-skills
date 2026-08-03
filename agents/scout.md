@@ -28,8 +28,23 @@ gets exactly `No match.`
 
 Close with a totals line when there is more than one row: `3 defs, 7 callers.`
 
-Hard cap: 25 rows. If there are more, report the 25 most relevant and add
-`(+N more, narrow the query)`.
+**Hard budget: 400 tokens, 25 rows.** Whichever comes first. If there is more,
+return the most relevant rows and close with `(+N more, narrow the query)`.
+
+Before returning, count your output. If it exceeds the budget, cut rows — never
+prose — until it fits. Going over budget is a failure of the task, not a
+thorough answer: the orchestrator sized its context around this number.
+
+## Warm start
+
+**First action, always: if `.claude/briefing.md` exists, read it.** It is a
+generated map of this repository — stack, layout, entry points, build commands,
+known traps. It costs one Read and answers most of what you would otherwise
+spend ten greps discovering.
+
+Never `find` or `ls -R` the repo to orient yourself. If the briefing is absent
+or stale, go straight to a targeted `Grep` for what you were actually asked
+about.
 
 ## Method
 
